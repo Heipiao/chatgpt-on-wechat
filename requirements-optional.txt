@@ -29,3 +29,6 @@ google-generativeai
 
 # tencentcloud sdk
 tencentcloud-sdk-python>=3.0.0
+
+# context storage
+redis>=5.0.0
