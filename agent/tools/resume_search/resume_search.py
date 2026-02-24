@@ -158,4 +158,28 @@ class ResumeSearch(BaseTool):
             return ToolResult.fail(f"Error: Resume not found for candidate_id={candidate_id} (set upsert=true to create)")
         if resp.status_code != 200:
             return ToolResult.fail(f"Error: Update returned HTTP {resp.status_code}: {resp.text[:200]}")
-        return ToolResult.success(resp.json())
+
+        name = fields.get("name_full") or candidate_id
+        card = self._build_update_card(name, fields)
+        return ToolResult.success({
+            "type": "feishu_card",
+            "title": f"简历已更新 - {name}",
+            "card": card,
+            "update_result": resp.json(),
+        })
+
+    @staticmethod
+    def _build_update_card(name: str, fields: Dict[str, Any]) -> dict:
+        elements = []
+        for key, value in fields.items():
+            elements.append({
+                "tag": "div",
+                "text": {"tag": "lark_md", "content": f"**{key}**: {value}"},
+            })
+        return {
+            "header": {
+                "title": {"tag": "plain_text", "content": f"简历已更新 - {name}"},
+                "template": "blue",
+            },
+            "elements": elements,
+        }

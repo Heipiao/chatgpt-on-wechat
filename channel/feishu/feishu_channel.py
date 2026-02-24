@@ -303,10 +303,14 @@ class FeiShuChanel(ChatChannel):
             "Content-Type": "application/json",
         }
         msg_type = "text"
-        logger.debug(f"[FeiShu] sending reply, type={context.type}, content={reply.content[:100]}...")
+        logger.debug(f"[FeiShu] sending reply, type={context.type}, content={str(reply.content)[:100]}...")
         reply_content = reply.content
         content_key = "text"
-        if reply.type == ReplyType.IMAGE_URL:
+        if reply.type == ReplyType.CARD_MSG:
+            msg_type = "interactive"
+            content_key = None
+            reply_content = reply.content
+        elif reply.type == ReplyType.IMAGE_URL:
             # 图片上传
             reply_content = self._upload_image_url(reply.content, access_token)
             if not reply_content:

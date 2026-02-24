@@ -64,6 +64,8 @@ class AgentStreamExecutor:
         
         # Track files to send (populated by read tool)
         self.files_to_send = []  # List of file metadata dicts
+        # Track cards to send (populated by tools like resume_search update)
+        self.cards_to_send = []  # List of card dicts
 
     def _emit_event(self, event_type: str, data: dict = None):
         """Emit event"""
@@ -313,9 +315,11 @@ class AgentStreamExecutor:
                         if result.get("status") == "success" and isinstance(result.get("result"), dict):
                             result_data = result.get("result")
                             if result_data.get("type") == "file_to_send":
-                                # Store file metadata for later sending
                                 self.files_to_send.append(result_data)
                                 logger.info(f"📎 检测到待发送文件: {result_data.get('file_name', result_data.get('path'))}")
+                            elif result_data.get("type") == "feishu_card":
+                                self.cards_to_send.append(result_data)
+                                logger.info(f"🃏 检测到待发送卡片: {result_data.get('title', '')}")
                         
                         # Check for critical error - abort entire conversation
                         if result.get("status") == "critical_error":
