@@ -106,7 +106,7 @@ class ResumeSearch(BaseTool):
             return ToolResult.fail(f"Error: {str(e)}")
 
     # 搜索默认只返回这几项，避免整条简历过多；传 include_fields 则用传入的
-    DEFAULT_SEARCH_FIELDS = ["candidate_id", "name_full", "core_summary", "extracted_tags"]
+    DEFAULT_SEARCH_FIELDS = ["candidate_id", "name_full", "core_summary", "extracted_tags", "url"]
 
     def _do_search(self, args: Dict[str, Any]) -> ToolResult:
         payload = {}
@@ -128,6 +128,18 @@ class ResumeSearch(BaseTool):
         if resp.status_code != 200:
             return ToolResult.fail(f"Error: Resume search returned HTTP {resp.status_code}: {resp.text[:200]}")
         data = resp.json()
+
+        hits = data.get("hits") or []
+        if hits:
+            top = hits[0]
+            source = top.get("source") or top
+            card = self._build_search_card(source)
+            return ToolResult.success({
+                "type": "feishu_card",
+                "title": f"最佳匹配 - {source.get('name_full', '')}",
+                "card": card,
+                "search_result": data,
+            })
         return ToolResult.success(data)
 
     def _do_get(self, args: Dict[str, Any]) -> ToolResult:
@@ -167,6 +179,36 @@ class ResumeSearch(BaseTool):
             "card": card,
             "update_result": resp.json(),
         })
+
+    @staticmethod
+    def _build_search_card(source: Dict[str, Any]) -> dict:
+        name = source.get("name_full") or "未知"
+        summary = source.get("core_summary") or "暂无摘要"
+        tags = source.get("extracted_tags") or "暂无标签"
+        url = source.get("url") or ""
+
+        elements = [
+            {"tag": "div", "text": {"tag": "lark_md", "content": f"**姓名**: {name}"}},
+            {"tag": "div", "text": {"tag": "lark_md", "content": f"**摘要**: {summary}"}},
+            {"tag": "div", "text": {"tag": "lark_md", "content": f"**标签**: {tags}"}},
+        ]
+        if url:
+            elements.append({
+                "tag": "action",
+                "actions": [{
+                    "tag": "button",
+                    "text": {"tag": "plain_text", "content": "查看详情"},
+                    "type": "primary",
+                    "url": url,
+                }],
+            })
+        return {
+            "header": {
+                "title": {"tag": "plain_text", "content": f"最佳匹配 - {name}"},
+                "template": "green",
+            },
+            "elements": elements,
+        }
 
     @staticmethod
     def _build_update_card(name: str, fields: Dict[str, Any]) -> dict:
