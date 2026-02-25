@@ -11,6 +11,7 @@ from bridge.agent_initializer import AgentInitializer
 from bridge.bridge import Bridge
 from bridge.context import Context
 from bridge.reply import Reply, ReplyType
+from context.context_manager import ContextManager
 from common import const
 from common.log import logger
 from common.utils import expand_path
@@ -188,7 +189,8 @@ class AgentBridge:
         self.default_agent = None  # For backward compatibility (no session_id)
         self.agent: Optional[Agent] = None
         self.scheduler_initialized = False
-        
+        self.context_manager = ContextManager()
+
         # Create helper instances
         self.initializer = AgentInitializer(bridge, self)
     def create_agent(self, system_prompt: str, tools: List = None, **kwargs) -> Agent:
@@ -326,11 +328,13 @@ class AgentBridge:
                             break
             
             try:
-                # Use agent's run_stream method with event handler
+                # Use agent's run_stream method with event handler（传入 context_manager + session_id 以启用最近简历等）
                 response = agent.run_stream(
                     user_message=query,
                     on_event=event_handler.handle_event,
-                    clear_history=clear_history
+                    clear_history=clear_history,
+                    session_id=session_id,
+                    context_manager=self.context_manager,
                 )
             finally:
                 # Restore original tools

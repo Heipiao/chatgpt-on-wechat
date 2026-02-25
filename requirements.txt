@@ -27,3 +27,6 @@ dashscope
 lark-oapi
 # dingtalk
 dingtalk_stream
+
+# context storage (ContextManager / 最近简历，连远程 Redis 需安装)
+redis>=5.0.0

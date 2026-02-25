@@ -32,6 +32,12 @@ fi
 # Get current script directory
 export BASE_DIR=$(cd "$(dirname "$0")"; pwd)
 
+# Redis (ContextManager / 最近简历)
+export REDIS_HOST="${REDIS_HOST:-r-bp12okpl170pwc65c7pd.redis.rds.aliyuncs.com}"
+export REDIS_PORT="${REDIS_PORT:-6379}"
+export REDIS_PASSWORD="${REDIS_PASSWORD:-taluo_dev:taluo@2025}"
+export REDIS_DB="${REDIS_DB:-0}"
+
 # Detect if in project directory
 IS_PROJECT_DIR=false
 if [ -f "${BASE_DIR}/config-template.json" ] && [ -f "${BASE_DIR}/app.py" ]; then

@@ -113,8 +113,19 @@ class ChatService:
         from config import conf
         max_context_turns = conf().get("agent_max_context_turns", 30)
 
-        # Get full system prompt with skills
-        full_system_prompt = agent.get_full_system_prompt()
+        # System prompt: 若启用 ContextManager 则用其构建（base + 最近简历 + runtime），否则用 agent 原有逻辑
+        base_prompt = agent.get_full_system_prompt()
+        context_mgr = getattr(self.agent_bridge, "context_manager", None)
+        if context_mgr:
+            logger.info("[ChatService] 使用 ContextManager 构建 system_prompt, session_id=%s", session_id)
+            full_system_prompt = context_mgr.build_system_prompt(
+                session_id=session_id,
+                base_prompt=base_prompt,
+                runtime_info=getattr(agent, "runtime_info", None),
+            )
+        else:
+            logger.debug("[ChatService] 无 context_manager，使用 agent 原有 system_prompt")
+            full_system_prompt = base_prompt
 
         # Create a copy of messages for this execution
         with agent.messages_lock:

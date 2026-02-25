@@ -432,7 +432,8 @@ class Agent:
 
         return action
 
-    def run_stream(self, user_message: str, on_event=None, clear_history: bool = False, skill_filter=None) -> str:
+    def run_stream(self, user_message: str, on_event=None, clear_history: bool = False, skill_filter=None,
+                   session_id: str = None, context_manager=None) -> str:
         """
         Execute single agent task with streaming (based on tool-call)
 
@@ -448,6 +449,8 @@ class Agent:
                      event = {"type": str, "timestamp": float, "data": dict}
             clear_history: If True, clear conversation history before this call (default: False)
             skill_filter: Optional list of skill names to include in this run
+            session_id: Optional session id (when provided with context_manager, use ContextManager to build system prompt)
+            context_manager: Optional ContextManager (when provided with session_id, inject recent resume + runtime)
 
         Returns:
             Final response text
@@ -469,8 +472,18 @@ class Agent:
         if not self.model:
             raise ValueError("No model available for agent")
 
-        # Get full system prompt with skills
-        full_system_prompt = self.get_full_system_prompt(skill_filter=skill_filter)
+        # System prompt: 若传入 context_manager 则走 ContextManager（base + 最近简历 + runtime），session_id 为空时最近简历块为空
+        base_prompt = self.get_full_system_prompt(skill_filter=skill_filter)
+        if context_manager:
+            logger.info("[Agent] run_stream: 使用 ContextManager 构建 system_prompt, session_id=%s", session_id or "(empty)")
+            full_system_prompt = context_manager.build_system_prompt(
+                session_id=session_id or "",
+                base_prompt=base_prompt,
+                runtime_info=getattr(self, "runtime_info", None),
+            )
+        else:
+            logger.debug("[Agent] run_stream: 未传 context_manager，使用 agent 原有 system_prompt")
+            full_system_prompt = base_prompt
 
         # Create a copy of messages for this execution to avoid concurrent modification
         # Record the original length to track which messages are new

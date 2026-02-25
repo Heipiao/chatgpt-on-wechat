@@ -527,6 +527,13 @@ class AgentStreamExecutor:
             system=self.system_prompt  # Pass system prompt separately for Claude API
         )
 
+        # Log LLM input structure (parts and sizes) for inspection
+        self._log_llm_input_summary(
+            system_prompt=self.system_prompt,
+            messages=messages,
+            tools_schema=tools_schema,
+        )
+
         self._emit_event("message_start", {"role": "assistant"})
 
         # Streaming response
@@ -1255,6 +1262,59 @@ class AgentStreamExecutor:
                 f"({old_count} -> {new_count} 条消息，"
                 f"~{current_tokens + system_tokens} -> ~{accumulated_tokens + system_tokens} tokens)"
             )
+
+    def _log_llm_input_summary(
+        self,
+        system_prompt: str,
+        messages: List[Dict[str, Any]],
+        tools_schema: Optional[List[Dict[str, Any]]],
+    ) -> None:
+        """Print summary of what is sent to the LLM on each call (parts and sizes)."""
+        sep = "=" * 60
+        logger.info(f"{sep}")
+        logger.info("LLM 输入 - 本次请求")
+        logger.info(f"{sep}")
+
+        # 1. system
+        sys_len = len(system_prompt or "")
+        logger.info(f"[1] system_prompt: {sys_len} 字符")
+        if system_prompt:
+            preview_len = 800
+            if sys_len <= preview_len:
+                logger.info(f"    内容: {system_prompt[:preview_len]}")
+            else:
+                head = system_prompt[:400]
+                tail = system_prompt[-300:]
+                logger.info(f"    开头: {head} ...")
+                logger.info(f"    结尾: ... {tail}")
+
+        # 2. messages
+        logger.info(f"[2] messages: 共 {len(messages)} 条")
+        for i, msg in enumerate(messages):
+            role = msg.get("role", "?")
+            content = msg.get("content", "")
+            if isinstance(content, list):
+                types = [b.get("type", "?") for b in content if isinstance(b, dict)]
+                content_str = json.dumps(content, ensure_ascii=False)
+                total_len = len(content_str)
+                preview = (content_str[:100] + "…") if total_len > 100 else content_str
+                logger.info(f"    [{i}] role={role}, 总长={total_len}, list({len(content)} blocks): {types}")
+                logger.info(f"        前100字: {preview}")
+            else:
+                text = (content or "").strip()
+                total_len = len(text)
+                preview = (text[:100] + "…") if total_len > 100 else text
+                logger.info(f"    [{i}] role={role}, 总长={total_len}")
+                logger.info(f"        前100字: {preview}")
+
+        # 3. tools
+        if tools_schema:
+            names = [t.get("name", "?") for t in tools_schema]
+            logger.info(f"[3] tools: 共 {len(tools_schema)} 个 - {names}")
+        else:
+            logger.info("[3] tools: 无")
+
+        logger.info(f"{sep}")
 
     def _prepare_messages(self) -> List[Dict[str, Any]]:
         """
