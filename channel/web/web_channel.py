@@ -92,9 +92,19 @@ class WebChannel(ChatChannel):
                     logger.error(f"[WebChannel] OSS upload failed: {e}")
 
             if session_id in self.session_queues:
+                content = reply.content
+                if reply.type in FILE_REPLY_TYPES:
+                    # 文件类型：content 存文件名（供前端展示），而非 file:// 路径
+                    if isinstance(content, str):
+                        local_path = self._resolve_file_path(content)
+                        content = getattr(reply, "file_name", None) or os.path.basename(local_path)
+                    else:
+                        content = getattr(reply, "file_name", "") or ""
+                elif not isinstance(content, str):
+                    content = ""
                 response_data = {
                     "type": str(reply.type),
-                    "content": reply.content if isinstance(reply.content, str) else "",
+                    "content": content,
                     "oss_url": oss_url,
                     "timestamp": time.time(),
                     "request_id": request_id,
@@ -107,6 +117,13 @@ class WebChannel(ChatChannel):
         except Exception as e:
             logger.error(f"Error in send method: {e}")
 
+    @staticmethod
+    def _resolve_file_path(content: str) -> str:
+        """将 file:// URL 或普通路径统一转为本地文件路径"""
+        if content.startswith("file://"):
+            return content[7:]
+        return content
+
     def _upload_to_oss(self, reply: Reply) -> str:
         """将文件类型 reply 上传到 OSS，返回公网 URL"""
         from common_utils.oss import OSSClient
@@ -115,11 +132,13 @@ class WebChannel(ChatChannel):
         content = reply.content
         reply_type_name = reply.type.name
 
-        if isinstance(content, str) and os.path.isfile(content):
-            file_name = os.path.basename(content)
-            oss_key = client.build_upload_key(reply_type_name, file_name)
-            client.upload_file(oss_key, content)
-            return client.get_file_url(oss_key)
+        if isinstance(content, str):
+            local_path = self._resolve_file_path(content)
+            if os.path.isfile(local_path):
+                file_name = getattr(reply, "file_name", None) or os.path.basename(local_path)
+                oss_key = client.build_upload_key(reply_type_name, file_name)
+                client.upload_file(oss_key, local_path)
+                return client.get_file_url(oss_key)
 
         if hasattr(content, "read"):
             file_name = getattr(content, "name", "file")
