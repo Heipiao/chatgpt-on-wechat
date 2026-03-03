@@ -236,8 +236,30 @@ class WebChannel(ChatChannel):
         logging.getLogger("web").setLevel(logging.ERROR)
         logging.getLogger("web.httpserver").setLevel(logging.ERROR)
         
+        # CORS 中间件（当配置了 web_cors_allow_origin 时生效）
+        allow_origin = (conf().get("web_cors_allow_origin") or "").strip()
+        if allow_origin:
+            logger.info("[WebChannel] CORS enabled: Access-Control-Allow-Origin=%s", allow_origin)
+            def cors_middleware(app):
+                cors_headers = [
+                    ("Access-Control-Allow-Origin", allow_origin),
+                    ("Access-Control-Allow-Methods", "GET, POST, OPTIONS"),
+                    ("Access-Control-Allow-Headers", "Content-Type, Authorization"),
+                ]
+                def wrapper(environ, start_response):
+                    if environ.get("REQUEST_METHOD") == "OPTIONS":
+                        start_response("200 OK", cors_headers)
+                        return [b""]
+                    def custom_start_response(status, headers, exc_info=None):
+                        start_response(status, list(headers) + cors_headers, exc_info)
+                    return app(environ, custom_start_response)
+                return wrapper
+            app_wrapper = cors_middleware(app.wsgifunc())
+        else:
+            app_wrapper = app.wsgifunc()
+        
         # Build WSGI app with middleware (same as runsimple but without print)
-        func = web.httpserver.StaticMiddleware(app.wsgifunc())
+        func = web.httpserver.StaticMiddleware(app_wrapper)
         func = web.httpserver.LogMiddleware(func)
         server = web.httpserver.WSGIServer(("0.0.0.0", port), func)
         self._http_server = server

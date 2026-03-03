@@ -8,8 +8,11 @@ CHATGPT_ON_WECHAT_CONFIG_PATH=${CHATGPT_ON_WECHAT_CONFIG_PATH:-""}
 # execution command line
 CHATGPT_ON_WECHAT_EXEC=${CHATGPT_ON_WECHAT_EXEC:-""}
 
-# use environment variables to pass parameters
-# if you have not defined environment variables, set them below
+# 模型与 Key 可通过环境变量覆盖 config.json（启动前 export 或 docker run -e）：
+#   MODEL=glm-4.7              # 使用智谱 GLM（glm-4 / glm-4.7 等）
+#   ZHIPU_AI_API_KEY=xxx        # 智谱 API Key，用智谱时必填，否则 401
+#   MODEL=minimax-M2.5          # 使用 MiniMax 时需 MINIMAX_API_KEY
+# 其他可选 env 示例：
 # export OPEN_AI_API_KEY=${OPEN_AI_API_KEY:-'YOUR API KEY'}
 # export OPEN_AI_PROXY=${OPEN_AI_PROXY:-""}
 # export SINGLE_CHAT_PREFIX=${SINGLE_CHAT_PREFIX:-'["bot", "@bot"]'}
