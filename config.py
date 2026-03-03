@@ -320,16 +320,21 @@ def load_config():
         if name.startswith("_"):
             continue
         if name in available_setting:
-            logger.info("[INIT] override config by environ args: {}={}".format(name, value))
+            # 敏感项不打印原始 value，避免泄露
+            log_value = value
+            if ("key" in name or "secret" in name) and isinstance(value, str) and len(value) > 6:
+                log_value = value[:4] + "***" + value[-4:] if len(value) > 8 else "***"
+            logger.info("[INIT] override config by environ: {}={}".format(name, log_value))
             try:
                 config[name] = eval(value)
-            except:
+            except Exception:
                 if value == "false":
                     config[name] = False
                 elif value == "true":
                     config[name] = True
                 else:
-                    config[name] = value
+                    # 字符串去掉首尾空格，避免 key 因空格导致 401
+                    config[name] = value.strip() if isinstance(value, str) else value
 
     if config.get("debug", False):
         logger.setLevel(logging.DEBUG)
@@ -343,6 +348,9 @@ def load_config():
     logger.info("[INIT] ========================================")
     logger.info("[INIT] Channel: {}".format(config.get("channel_type", "unknown")))
     logger.info("[INIT] Model: {}".format(config.get("model", "unknown")))
+    # 智谱 key 是否已设置（便于排查 401）
+    zk = config.get("zhipu_ai_api_key") or ""
+    logger.info("[INIT] zhipu_ai_api_key: {} (env 会覆盖 config.json)".format("已设置" if zk.strip() else "未设置/为空"))
 
     # Agent模式信息
     if config.get("agent", False):
