@@ -192,6 +192,12 @@ available_setting = {
     "Minimax_base_url": "",
     "web_port": 9899,
     "web_cors_allow_origin": "",  # CORS 允许的源，如 http://localhost:3000，空则不加 CORS 头
+    # 阿里云 OSS 配置
+    "oss_access_key_id": "",
+    "oss_access_key_secret": "",
+    "oss_endpoint": "https://oss-cn-hangzhou.aliyuncs.com",
+    "oss_bucket_name": "aihrbp-resumes",
+    "oss_tenant_id": 1,
     "agent": True,  # 是否开启Agent模式
     "agent_workspace": "~/cow",  # agent工作空间路径，用于存储skills、memory等
     "agent_max_context_tokens": 50000,  # Agent模式下最大上下文tokens

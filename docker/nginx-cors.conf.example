@@ -1,0 +1,31 @@
+# Nginx CORS 配置示例：前端从 http://localhost:3000 访问 https://aihrbp.aigcteacher.top/agent/ 时使用
+# 将下面一整个 location /agent/ 替换你现有的 /agent/ 块即可。
+
+    # Agent 网页对话（chatgpt-on-wechat web 通道 9899）+ CORS
+    location /agent/ {
+        # 预检请求：直接返回 204 + CORS，不转给后端
+        if ($request_method = 'OPTIONS') {
+            add_header 'Access-Control-Allow-Origin' 'http://localhost:3000' always;
+            add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS' always;
+            add_header 'Access-Control-Allow-Headers' 'Content-Type, Authorization' always;
+            add_header 'Access-Control-Max-Age' 86400 always;
+            add_header 'Content-Length' 0;
+            return 204;
+        }
+        # 所有响应都带 CORS（含 4xx/5xx，必须写 always）
+        add_header 'Access-Control-Allow-Origin' 'http://localhost:3000' always;
+        add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS' always;
+        add_header 'Access-Control-Allow-Headers' 'Content-Type, Authorization' always;
+
+        proxy_pass http://172.30.215.20:9899/;
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        proxy_buffering off;
+        proxy_read_timeout  300s;
+        proxy_connect_timeout 300s;
+        proxy_send_timeout  300s;
+    }

@@ -17,6 +17,9 @@ import mimetypes  # 添加这行来处理MIME类型
 import threading
 import logging
 
+FILE_REPLY_TYPES = {ReplyType.FILE, ReplyType.IMAGE, ReplyType.VIDEO}
+
+
 class WebMessage(ChatMessage):
     def __init__(
         self,
@@ -71,35 +74,62 @@ class WebChannel(ChatChannel):
             if reply.type == ReplyType.IMAGE_URL:
                 time.sleep(0.5)
 
-            # 获取请求ID和会话ID
             request_id = context.get("request_id", None)
-            
             if not request_id:
                 logger.error("No request_id found in context, cannot send message")
                 return
-                
-            # 通过request_id获取session_id
+
             session_id = self.request_to_session.get(request_id)
             if not session_id:
                 logger.error(f"No session_id found for request {request_id}")
                 return
-            
-            # 检查是否有会话队列
+
+            oss_url = None
+            if reply.type in FILE_REPLY_TYPES:
+                try:
+                    oss_url = self._upload_to_oss(reply)
+                except Exception as e:
+                    logger.error(f"[WebChannel] OSS upload failed: {e}")
+
             if session_id in self.session_queues:
-                # 创建响应数据，包含请求ID以区分不同请求的响应
                 response_data = {
                     "type": str(reply.type),
-                    "content": reply.content,
+                    "content": reply.content if isinstance(reply.content, str) else "",
+                    "oss_url": oss_url,
                     "timestamp": time.time(),
-                    "request_id": request_id
+                    "request_id": request_id,
                 }
                 self.session_queues[session_id].put(response_data)
                 logger.debug(f"Response sent to queue for session {session_id}, request {request_id}")
             else:
                 logger.warning(f"No response queue found for session {session_id}, response dropped")
-            
+
         except Exception as e:
             logger.error(f"Error in send method: {e}")
+
+    def _upload_to_oss(self, reply: Reply) -> str:
+        """将文件类型 reply 上传到 OSS，返回公网 URL"""
+        from common_utils.oss import OSSClient
+
+        client = OSSClient()
+        content = reply.content
+        reply_type_name = reply.type.name
+
+        if isinstance(content, str) and os.path.isfile(content):
+            file_name = os.path.basename(content)
+            oss_key = client.build_upload_key(reply_type_name, file_name)
+            client.upload_file(oss_key, content)
+            return client.get_file_url(oss_key)
+
+        if hasattr(content, "read"):
+            file_name = getattr(content, "name", "file")
+            oss_key = client.build_upload_key(reply_type_name, file_name)
+            data = content.read()
+            client.upload_bytes(oss_key, data)
+            return client.get_file_url(oss_key)
+
+        logger.warning(f"[WebChannel] Cannot upload: unrecognized content type {type(content)}")
+        return None
 
     def post_message(self):
         """
@@ -174,13 +204,14 @@ class WebChannel(ChatChannel):
                 # 使用peek而不是get，这样如果前端没有成功处理，下次还能获取到
                 response = self.session_queues[session_id].get(block=False)
                 
-                # 返回响应，包含请求ID以区分不同请求
                 return json.dumps({
-                    "status": "success", 
+                    "status": "success",
                     "has_content": True,
+                    "type": response["type"],
                     "content": response["content"],
+                    "oss_url": response.get("oss_url"),
                     "request_id": response["request_id"],
-                    "timestamp": response["timestamp"]
+                    "timestamp": response["timestamp"],
                 })
                 
             except Empty:
