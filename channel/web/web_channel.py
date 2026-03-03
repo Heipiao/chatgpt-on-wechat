@@ -67,6 +67,8 @@ class WebChannel(ChatChannel):
 
     def send(self, reply: Reply, context: Context):
         try:
+            logger.info(f"[WebChannel] send() called: type={reply.type}, content_type={type(reply.content).__name__}, content={str(reply.content)[:200]}")
+
             if reply.type in self.NOT_SUPPORT_REPLYTYPE:
                 logger.warning(f"Web channel doesn't support {reply.type} yet")
                 return
@@ -85,16 +87,19 @@ class WebChannel(ChatChannel):
                 return
 
             oss_url = None
-            if reply.type in FILE_REPLY_TYPES:
+            is_file_type = reply.type in FILE_REPLY_TYPES
+            logger.info(f"[WebChannel] is_file_type={is_file_type}, FILE_REPLY_TYPES check: {reply.type} in {FILE_REPLY_TYPES}")
+
+            if is_file_type:
                 try:
                     oss_url = self._upload_to_oss(reply)
+                    logger.info(f"[WebChannel] OSS upload result: oss_url={oss_url}")
                 except Exception as e:
-                    logger.error(f"[WebChannel] OSS upload failed: {e}")
+                    logger.error(f"[WebChannel] OSS upload failed: {e}", exc_info=True)
 
             if session_id in self.session_queues:
                 content = reply.content
-                if reply.type in FILE_REPLY_TYPES:
-                    # 文件类型：content 存文件名（供前端展示），而非 file:// 路径
+                if is_file_type:
                     if isinstance(content, str):
                         local_path = self._resolve_file_path(content)
                         content = getattr(reply, "file_name", None) or os.path.basename(local_path)
@@ -110,12 +115,12 @@ class WebChannel(ChatChannel):
                     "request_id": request_id,
                 }
                 self.session_queues[session_id].put(response_data)
-                logger.debug(f"Response sent to queue for session {session_id}, request {request_id}")
+                logger.info(f"[WebChannel] Queued response: type={response_data['type']}, content={content}, oss_url={oss_url}, request_id={request_id}")
             else:
                 logger.warning(f"No response queue found for session {session_id}, response dropped")
 
         except Exception as e:
-            logger.error(f"Error in send method: {e}")
+            logger.error(f"Error in send method: {e}", exc_info=True)
 
     @staticmethod
     def _resolve_file_path(content: str) -> str:
@@ -128,26 +133,37 @@ class WebChannel(ChatChannel):
         """将文件类型 reply 上传到 OSS，返回公网 URL"""
         from common_utils.oss import OSSClient
 
-        client = OSSClient()
         content = reply.content
         reply_type_name = reply.type.name
+        logger.info(f"[WebChannel] _upload_to_oss: reply_type={reply_type_name}, content_type={type(content).__name__}, content={str(content)[:200]}")
 
         if isinstance(content, str):
             local_path = self._resolve_file_path(content)
-            if os.path.isfile(local_path):
+            file_exists = os.path.isfile(local_path)
+            logger.info(f"[WebChannel] _upload_to_oss: resolved path={local_path}, exists={file_exists}")
+            if file_exists:
                 file_name = getattr(reply, "file_name", None) or os.path.basename(local_path)
+                logger.info(f"[WebChannel] _upload_to_oss: creating OSSClient, file_name={file_name}")
+                client = OSSClient()
                 oss_key = client.build_upload_key(reply_type_name, file_name)
+                logger.info(f"[WebChannel] _upload_to_oss: uploading to oss_key={oss_key}")
                 client.upload_file(oss_key, local_path)
-                return client.get_file_url(oss_key)
+                url = client.get_file_url(oss_key)
+                logger.info(f"[WebChannel] _upload_to_oss: upload success, url={url}")
+                return url
 
         if hasattr(content, "read"):
             file_name = getattr(content, "name", "file")
+            logger.info(f"[WebChannel] _upload_to_oss: file-like object, file_name={file_name}")
+            client = OSSClient()
             oss_key = client.build_upload_key(reply_type_name, file_name)
             data = content.read()
             client.upload_bytes(oss_key, data)
-            return client.get_file_url(oss_key)
+            url = client.get_file_url(oss_key)
+            logger.info(f"[WebChannel] _upload_to_oss: upload success, url={url}")
+            return url
 
-        logger.warning(f"[WebChannel] Cannot upload: unrecognized content type {type(content)}")
+        logger.warning(f"[WebChannel] _upload_to_oss: cannot upload, unrecognized content type {type(content)}")
         return None
 
     def post_message(self):
