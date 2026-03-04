@@ -1,7 +1,6 @@
 import os
 from typing import Any, Dict, List, Optional
 
-from context.recent_resume import ResumeContextService
 from context.utils import SystemMarkdownLoader
 from common.log import logger
 
@@ -31,7 +30,6 @@ class ContextManager:
         system_prompt_path: Optional[str] = None,
         system_prompt_hot_reload: bool = True,
         recent_resume_limit: int = 5,
-        resume_context_service: Optional[ResumeContextService] = None,
     ):
         base_dir = os.path.dirname(os.path.abspath(__file__))
         default_prompt_path = os.path.join(base_dir, "data", "system_prompt.md")
@@ -42,7 +40,6 @@ class ContextManager:
             hot_reload=system_prompt_hot_reload,
         )
         self.recent_resume_limit = recent_resume_limit
-        self.resume_context_service = resume_context_service or ResumeContextService()
 
     def build_system_prompt(
         self,
@@ -111,8 +108,8 @@ class ContextManager:
         }
 
     def get_recent_resume_summaries(self, session_id: str, limit: int = 10) -> List[Dict[str, str]]:
-        """Return recent resume summaries for session."""
-        return self.resume_context_service.get_recent_resume_summaries(session_id=session_id, limit=limit)
+        """Return recent resume summaries for session (disabled, returns empty)."""
+        return []
 
     def update_latest_resume_view(
         self,
@@ -121,13 +118,8 @@ class ContextManager:
         name: str,
         summary: str,
     ) -> None:
-        """Update latest viewed resume info for session."""
-        self.resume_context_service.update_latest_view(
-            session_id=session_id,
-            candidate_id=candidate_id,
-            name=name,
-            summary=summary,
-        )
+        """Update latest viewed resume info for session (disabled, no-op)."""
+        pass
 
     def set_system_prompt_hot_reload(self, enabled: bool) -> None:
         self.system_loader.set_hot_reload(enabled)
