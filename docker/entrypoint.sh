@@ -46,6 +46,13 @@ fi
 # fi
 
 
+# 安装 oss2（构建环境无网络，改为启动时安装）
+if ! python -c "import oss2" 2>/dev/null; then
+    echo "[entrypoint] Installing oss2..."
+    rm -f /usr/local/bin/jp.py
+    pip install --no-cache-dir oss2 2>&1 || echo "[entrypoint] WARNING: oss2 install failed, OSS upload will not work"
+fi
+
 # go to prefix dir
 cd $CHATGPT_ON_WECHAT_PREFIX
 # excute
