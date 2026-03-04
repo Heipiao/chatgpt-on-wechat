@@ -1,0 +1,11 @@
+.git
+.github
+.gitignore
+__pycache__
+**/__pycache__
+*.pyc
+nohup.out
+run.log
+user_datas.pkl
+.env
+docs/

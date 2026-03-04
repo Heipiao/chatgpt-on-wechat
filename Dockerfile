@@ -1,5 +1,8 @@
 FROM ghcr.io/zhayujie/chatgpt-on-wechat:latest
 
+# 清理基础镜像中可能冲突的 .git 目录
+RUN rm -rf /app/.git
+
 # 用本地代码覆盖基础镜像中的 /app
 COPY . /app
 
