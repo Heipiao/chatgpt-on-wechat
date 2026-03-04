@@ -294,12 +294,12 @@ class ChatChannel(Channel):
                 # 如果是文本回复，尝试提取并发送图片
                 if reply.type == ReplyType.TEXT:
                     self._extract_and_send_images(reply, context)
-                # 如果是图片回复但带有文本内容，先发文本再发图片
-                elif reply.type == ReplyType.IMAGE_URL and hasattr(reply, 'text_content') and reply.text_content:
-                    # 先发送文本
+                # 如果是图片/文件回复但带有文本内容，先发文本再发文件
+                elif hasattr(reply, 'text_content') and reply.text_content and reply.type in (
+                    ReplyType.IMAGE_URL, ReplyType.FILE, ReplyType.IMAGE, ReplyType.VIDEO
+                ):
                     text_reply = Reply(ReplyType.TEXT, reply.text_content)
                     self._send(text_reply, context)
-                    # 短暂延迟后发送图片
                     time.sleep(0.3)
                     self._send(reply, context)
                 else:
