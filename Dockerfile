@@ -4,8 +4,6 @@ FROM ghcr.io/zhayujie/chatgpt-on-wechat:latest
 RUN rm -rf /app/* /app/.[!.]* /app/..?*
 COPY . /app
 
-# 安装新增依赖
-RUN pip install --no-cache-dir oss2
 
 COPY --chmod=755 docker/entrypoint.sh /entrypoint.sh
 
