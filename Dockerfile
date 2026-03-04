@@ -4,7 +4,12 @@ FROM ghcr.io/zhayujie/chatgpt-on-wechat:latest
 RUN rm -rf /app/* /app/.[!.]* /app/..?*
 COPY --chmod=0777 . /app
 
-RUN pip install oss2
+# 用 root 安装依赖
+USER root
+RUN pip install --no-cache-dir oss2
+
+# 再切回普通用户
+USER noroot
 
 COPY --chmod=755 docker/entrypoint.sh /entrypoint.sh
 
