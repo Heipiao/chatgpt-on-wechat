@@ -1,7 +1,7 @@
 FROM ghcr.io/zhayujie/chatgpt-on-wechat:latest
 
-# 完全清空基础镜像的 /app，用本地代码替换
-RUN rm -rf /app
+# 清空基础镜像 /app 中的所有文件（含隐藏文件如 .git）
+RUN rm -rf /app/* /app/.[!.]* /app/..?*
 COPY . /app
 
 # 安装新增依赖
