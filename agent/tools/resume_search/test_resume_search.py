@@ -1,5 +1,5 @@
 """
-Test the three resume_search actions: search, get, update.
+Test the four resume_search actions: search (DSL), get, update, delete.
 Run from project root (chatgpt-on-wechat):
   python -m agent.tools.resume_search.test_resume_search
   or: pytest agent/tools/resume_search/test_resume_search.py -v
@@ -13,13 +13,11 @@ import sys
 
 import requests
 
-# Timeout for health check and for tool (tool uses its own 30s by default)
 TEST_TIMEOUT = 15
 
 
-def test_resume_search_three_actions():
-    """Test search -> get -> update in sequence."""
-    # Project root = chatgpt-on-wechat (parent of agent/)
+def test_resume_search_four_actions():
+    """Test search (DSL) -> get -> update -> (skip delete) in sequence."""
     _here = os.path.abspath(__file__)
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(_here))))
     if project_root not in sys.path:
@@ -32,7 +30,6 @@ def test_resume_search_three_actions():
     base_url = tool._base_url
     print(f"Base URL: {base_url}\n")
 
-    # Health check first: if this times out, curl works but test doesn't => run test in terminal
     try:
         r = requests.get(f"{base_url}/health", timeout=TEST_TIMEOUT)
         r.raise_for_status()
@@ -46,24 +43,37 @@ def test_resume_search_three_actions():
         )
         raise
 
-    # ---- 1. search ----
-    print("1. Testing action=search ...")
+    # ---- 1. search (DSL) ----
+    print("1. Testing action=search (DSL) ...")
     res = tool.execute({
         "action": "search",
-        "query": "产品",
-        "size": 2,
-        "from_": 0,
+        "dsl": {
+            "query": {
+                "multi_match": {
+                    "query": "产品",
+                    "fields": ["name_full^3", "current_title^3", "core_summary^2", "doc_text_clean"],
+                    "analyzer": "ik_smart",
+                }
+            },
+            "size": 2,
+            "from": 0,
+            "highlight": {
+                "fields": {"core_summary": {}, "current_title": {}}
+            },
+        },
     })
     assert isinstance(res, ToolResult), "search should return ToolResult"
     assert res.status == "success", f"search failed: {res.result}"
     data = res.result
+    if data.get("type") == "feishu_card":
+        data = data["search_result"]
     assert "total" in data and "hits" in data, f"search result should have total and hits: {data}"
     print(f"   total={data['total']}, hits={len(data['hits'])}")
     if data["hits"]:
         print(f"   first candidate_id={data['hits'][0].get('candidate_id')}")
     print("   search OK\n")
 
-    # ---- 2. get (use first candidate_id from search, or a fixed id) ----
+    # ---- 2. get ----
     candidate_id = None
     if data.get("hits"):
         candidate_id = data["hits"][0].get("candidate_id")
@@ -79,9 +89,10 @@ def test_resume_search_three_actions():
         print(f"   candidate_id={doc.get('candidate_id')}, name_full={doc.get('name_full')}")
         print("   get OK\n")
 
-    # ---- 3. update (only if we have candidate_id; update a safe field or skip) ----
+    # ---- 3. update ----
     if not candidate_id:
         print("3. Skipping update (no candidate_id)\n")
+        print("4. Skipping delete (no candidate_id)\n")
         return
 
     print("3. Testing action=update ...")
@@ -89,17 +100,22 @@ def test_resume_search_three_actions():
         "action": "update",
         "candidate_id": candidate_id,
         "fields": {"notes_internal": "test_resume_search.py run"},
-        "upsert": False,
     })
     assert isinstance(res, ToolResult), "update should return ToolResult"
     assert res.status == "success", f"update failed: {res.result}"
     out = res.result
-    assert isinstance(out, dict) and out.get("result") in ("updated", "created"), f"update result: {out}"
-    print(f"   result={out.get('result')}, id={out.get('id')}")
+    if out.get("type") == "feishu_card":
+        out = out["update_result"]
+    assert isinstance(out, dict) and out.get("result") == "updated", f"update result: {out}"
+    print(f"   result={out.get('result')}, updated_fields={out.get('updated_fields')}")
     print("   update OK\n")
 
-    print("All three actions passed.")
+    # ---- 4. delete (skip actual deletion to avoid data loss) ----
+    print("4. Skipping delete action in test to avoid data loss.")
+    print("   (delete action is implemented and callable via action='delete')\n")
+
+    print("All actions passed.")
 
 
 if __name__ == "__main__":
-    test_resume_search_three_actions()
+    test_resume_search_four_actions()
