@@ -40,7 +40,7 @@ class ResumeSearch(BaseTool):
         "\n"
         "Example DSL for searching '产品经理' in Beijing with >=5 years experience:\n"
         '{"query":{"bool":{"must":[{"multi_match":{"query":"产品经理",'
-        '"fields":["name_full^3","current_title^3","core_summary^2","doc_text_clean"],'
+        '"fields":["name_full","current_title","current_company","core_summary","doc_text_clean"],'
         '"analyzer":"ik_smart"}}],'
         '"filter":[{"term":{"location_city":"北京"}},'
         '{"range":{"years_of_experience":{"gte":5}}}]}},'
