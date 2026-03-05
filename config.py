@@ -196,7 +196,7 @@ available_setting = {
     "oss_access_key_id": "",
     "oss_access_key_secret": "",
     "oss_endpoint": "https://oss-cn-hangzhou.aliyuncs.com",
-    "oss_bucket_name": "aihrbp-resumes",
+    "oss_bucket_name": "hr-profile",
     "oss_tenant_id": 1,
     "agent": True,  # 是否开启Agent模式
     "agent_workspace": "~/cow",  # agent工作空间路径，用于存储skills、memory等
