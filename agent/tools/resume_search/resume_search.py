@@ -21,27 +21,31 @@ DEFAULT_TIMEOUT = 30
 class ResumeSearch(BaseTool):
     """Tool for searching, viewing, updating, or deleting candidate profiles."""
 
-    name: str = "resume_search"
+    name: str = "candidate_manage"
     description: str = (
-        "候选人简历管理工具，支持四个操作：\n"
-        "- search: 搜索候选人\n"
-        "- get: 按 candidate_id 查看单个候选人详情\n"
-        "- update: 更新候选人字段\n"
-        "- delete: 删除候选人\n"
+        "候选人档案管理工具，支持搜索、查看、更新、删除四个操作。\n"
+        "当用户要求查找简历、修改候选人信息、删除候选人、查看候选人详情时使用此工具。\n"
         "\n"
-        "【search 用法】在 dsl 参数中传入查询，tenant_id 会自动注入无需填写。\n"
+        "【search】搜索候选人，在 dsl 参数中传入查询，tenant_id 自动注入。\n"
         "固定模板（只替换 KEYWORD 和 filter 内容）：\n"
         '{"query":{"bool":{"must":[{"multi_match":{"query":"KEYWORD",'
         '"fields":["name_full","current_title","current_company","core_summary","doc_text_clean"]}}],'
         '"filter":[]}},"size":10}\n'
-        "\n"
-        "常用 filter（放入 filter 数组）：\n"
+        "常用 filter：\n"
         '按城市: {"term":{"location_city":"北京"}}\n'
         '按行业: {"terms":{"industries":["互联网","金融"]}}\n'
         '按技能: {"terms":{"skills_hard":["Python","Java"]}}\n'
         '按年限: {"range":{"years_of_experience":{"gte":5}}}\n'
-        '按性别: {"term":{"gender":"男"}}\n'
-        "没有筛选条件时 filter 传空数组 []。"
+        "没有筛选条件时 filter 传空数组 []。\n"
+        "\n"
+        "【get】查看单个候选人详情，传 candidate_id。\n"
+        "\n"
+        "【update】更新候选人字段，传 candidate_id 和 fields。\n"
+        "例如修改备注: action=update, candidate_id=xxx, fields={\"notes_internal\":\"已面试\"}\n"
+        "可更新的常用字段: notes_internal, current_title, current_company, "
+        "location_city, processing_status, skills_hard, industries 等。\n"
+        "\n"
+        "【delete】删除候选人，传 candidate_id。默认软删除，hard_delete=true 为物理删除。"
     )
 
     params: dict = {
@@ -91,7 +95,7 @@ class ResumeSearch(BaseTool):
         ).rstrip("/")
 
     def _get_tenant_id(self) -> int:
-        return int(conf().get("oss_tenant_id", 1))
+        return int(conf().get("oss_tenant_id", 2))
 
     def _get_actor_user_id(self) -> int:
         return int(conf().get("mcp_actor_user_id", 0))
