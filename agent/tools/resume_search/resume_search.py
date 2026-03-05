@@ -23,29 +23,25 @@ class ResumeSearch(BaseTool):
 
     name: str = "resume_search"
     description: str = (
-        "Search candidate resumes via Elasticsearch DSL, get a resume by candidate_id, "
-        "update resume fields, or delete a candidate.\n"
+        "候选人简历管理工具，支持四个操作：\n"
+        "- search: 搜索候选人\n"
+        "- get: 按 candidate_id 查看单个候选人详情\n"
+        "- update: 更新候选人字段\n"
+        "- delete: 删除候选人\n"
         "\n"
-        "For action=search, provide a raw Elasticsearch DSL query body in the 'dsl' parameter. "
-        "The tenant_id filter is injected automatically; you do NOT need to include it.\n"
-        "Available index fields and types:\n"
-        "  text (IK Chinese analyzer): name_full, current_title, current_company, "
-        "experience_overview, education_overview, core_summary, doc_text_clean, "
-        "projects_overview, achievements_highlights\n"
-        "  keyword: candidate_id, gender, location_city, location_country, seniority_level, "
-        "processing_status, skills_hard, skills_soft, tools_platforms, industries, functions, "
-        "pref_roles, pref_locations, pref_industries, pref_salary\n"
-        "  float: years_of_experience\n"
-        "  long: created_at, updated_at\n"
+        "【search 用法】在 dsl 参数中传入查询，tenant_id 会自动注入无需填写。\n"
+        "固定模板（只替换 KEYWORD 和 filter 内容）：\n"
+        '{"query":{"bool":{"must":[{"multi_match":{"query":"KEYWORD",'
+        '"fields":["name_full","current_title","current_company","core_summary","doc_text_clean"]}}],'
+        '"filter":[]}},"size":10}\n'
         "\n"
-        "Example DSL for searching '产品经理' in Beijing with >=5 years experience:\n"
-        '{"query":{"bool":{"must":[{"multi_match":{"query":"产品经理",'
-        '"fields":["name_full","current_title","current_company","core_summary","doc_text_clean"],'
-        '"analyzer":"ik_smart"}}],'
-        '"filter":[{"term":{"location_city":"北京"}},'
-        '{"range":{"years_of_experience":{"gte":5}}}]}},'
-        '"size":10,"from":0,'
-        '"highlight":{"fields":{"core_summary":{},"current_title":{}}}}'
+        "常用 filter（放入 filter 数组）：\n"
+        '按城市: {"term":{"location_city":"北京"}}\n'
+        '按行业: {"terms":{"industries":["互联网","金融"]}}\n'
+        '按技能: {"terms":{"skills_hard":["Python","Java"]}}\n'
+        '按年限: {"range":{"years_of_experience":{"gte":5}}}\n'
+        '按性别: {"term":{"gender":"男"}}\n'
+        "没有筛选条件时 filter 传空数组 []。"
     )
 
     params: dict = {
@@ -55,19 +51,19 @@ class ResumeSearch(BaseTool):
                 "type": "string",
                 "enum": ["search", "get", "update", "delete"],
                 "description": (
-                    "search: search resumes via ES DSL query; "
-                    "get: get one resume by candidate_id; "
-                    "update: update resume fields; "
-                    "delete: soft/hard delete a candidate"
+                    "search: 搜索候选人; "
+                    "get: 按 candidate_id 获取详情; "
+                    "update: 更新候选人字段; "
+                    "delete: 删除候选人"
                 )
             },
             "dsl": {
                 "type": "object",
                 "description": (
-                    "Elasticsearch DSL query body (for action=search). "
-                    "Must contain at least a 'query' key. "
-                    "tenant_id filter is injected automatically. "
-                    "Supports: query, from, size, sort, _source, highlight, aggs, etc."
+                    "搜索查询体(仅 action=search 时使用)。"
+                    "严格按照 description 中的固定模板生成，"
+                    "只替换 KEYWORD 为用户搜索词，按需往 filter 数组中加条件，"
+                    "fields 固定不变。"
                 )
             },
             "candidate_id": {
