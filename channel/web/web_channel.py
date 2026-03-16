@@ -176,6 +176,7 @@ class WebChannel(ChatChannel):
             json_data = json.loads(data)
             session_id = json_data.get('session_id', f'session_{int(time.time())}')
             prompt = json_data.get('message', '')
+            agent_runtime = json_data.get("agent_runtime")
             
             # 生成请求ID
             request_id = self._generate_request_id()
@@ -211,6 +212,8 @@ class WebChannel(ChatChannel):
             context["session_id"] = session_id
             context["receiver"] = session_id
             context["request_id"] = request_id
+            if isinstance(agent_runtime, dict):
+                context["agent_runtime"] = agent_runtime
             
             # 异步处理消息 - 只传递上下文
             threading.Thread(target=self.produce, args=(context,)).start()

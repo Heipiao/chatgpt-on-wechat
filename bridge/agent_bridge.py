@@ -3,7 +3,7 @@ Agent Bridge - Integrates Agent system with existing COW bridge
 """
 
 import os
-from typing import Optional, List
+from typing import Any, Dict, List, Optional
 
 from agent.protocol import Agent, LLMModel, LLMRequest
 from bridge.agent_event_handler import AgentEventHandler
@@ -66,10 +66,10 @@ class AgentLLMModel(LLMModel):
     LLM Model adapter that uses COW's existing bot infrastructure
     """
 
-    def __init__(self, bridge: Bridge, bot_type: str = "chat"):
+    def __init__(self, bridge: Bridge, bot_type: str = "chat", model_name: Optional[str] = None):
         # Get model name directly from config
         from config import conf
-        model_name = conf().get("model", const.GPT_41)
+        model_name = model_name or conf().get("model", const.GPT_41)
         super().__init__(model=model_name)
         self.bridge = bridge
         self.bot_type = bot_type
@@ -190,9 +190,11 @@ class AgentBridge:
         self.agent: Optional[Agent] = None
         self.scheduler_initialized = False
         self.context_manager = ContextManager()
+        self.session_runtime_versions: Dict[str, Optional[str]] = {}
 
         # Create helper instances
         self.initializer = AgentInitializer(bridge, self)
+
     def create_agent(self, system_prompt: str, tools: List = None, **kwargs) -> Agent:
         """
         Create the super agent with COW integration
@@ -206,7 +208,7 @@ class AgentBridge:
             Agent instance
         """
         # Create LLM model that uses COW's bot infrastructure
-        model = AgentLLMModel(self.bridge)
+        model = AgentLLMModel(self.bridge, model_name=kwargs.get("model_name"))
         
         # Default tools if none provided
         if tools is None:
@@ -233,6 +235,7 @@ class AgentBridge:
             max_steps=kwargs.get("max_steps", 15),
             output_mode=kwargs.get("output_mode", "logger"),
             workspace_dir=kwargs.get("workspace_dir"),  # Pass workspace for skills loading
+            skill_manager=kwargs.get("skill_manager"),
             enable_skills=kwargs.get("enable_skills", True),  # Enable skills by default
             memory_manager=kwargs.get("memory_manager"),  # Pass memory manager
             max_context_tokens=kwargs.get("max_context_tokens"),
@@ -246,7 +249,7 @@ class AgentBridge:
 
         return agent
     
-    def get_agent(self, session_id: str = None) -> Optional[Agent]:
+    def get_agent(self, session_id: str = None, runtime_config: Optional[Dict[str, Any]] = None) -> Optional[Agent]:
         """
         Get agent instance for the given session
         
@@ -263,8 +266,15 @@ class AgentBridge:
             return self.default_agent
         
         # Check if agent exists for this session
+        runtime_version = self._get_runtime_version(runtime_config)
         if session_id not in self.agents:
-            self._init_agent_for_session(session_id)
+            self._init_agent_for_session(session_id, runtime_config=runtime_config)
+        elif runtime_config and self.session_runtime_versions.get(session_id) != runtime_version:
+            logger.info(
+                f"[AgentBridge] Reinitializing session {session_id} for runtime version "
+                f"{self.session_runtime_versions.get(session_id)} -> {runtime_version}"
+            )
+            self._init_agent_for_session(session_id, runtime_config=runtime_config)
         
         return self.agents[session_id]
     
@@ -273,10 +283,29 @@ class AgentBridge:
         agent = self.initializer.initialize_agent(session_id=None)
         self.default_agent = agent
     
-    def _init_agent_for_session(self, session_id: str):
+    def _init_agent_for_session(
+        self,
+        session_id: str,
+        runtime_config: Optional[Dict[str, Any]] = None,
+    ):
         """Initialize agent for a specific session"""
-        agent = self.initializer.initialize_agent(session_id=session_id)
+        agent = self.initializer.initialize_agent(
+            session_id=session_id,
+            runtime_config=runtime_config,
+        )
         self.agents[session_id] = agent
+
+        if runtime_config:
+            self.session_runtime_versions[session_id] = self._get_runtime_version(runtime_config)
+        else:
+            self.session_runtime_versions.pop(session_id, None)
+
+    @staticmethod
+    def _get_runtime_version(runtime_config: Optional[Dict[str, Any]]) -> Optional[str]:
+        if not runtime_config:
+            return None
+        version = runtime_config.get("version")
+        return str(version) if version is not None else None
     
     def agent_reply(self, query: str, context: Context = None, 
                    on_event=None, clear_history: bool = False) -> Reply:
@@ -295,11 +324,13 @@ class AgentBridge:
         try:
             # Extract session_id from context for user isolation
             session_id = None
+            runtime_config = None
             if context:
                 session_id = context.kwargs.get("session_id") or context.get("session_id")
+                runtime_config = context.kwargs.get("agent_runtime") or context.get("agent_runtime")
             
             # Get agent for this session (will auto-initialize if needed)
-            agent = self.get_agent(session_id=session_id)
+            agent = self.get_agent(session_id=session_id, runtime_config=runtime_config)
             if not agent:
                 return Reply(ReplyType.ERROR, "Failed to initialize super agent")
             
@@ -499,11 +530,13 @@ class AgentBridge:
         if session_id in self.agents:
             logger.info(f"[AgentBridge] Clearing session: {session_id}")
             del self.agents[session_id]
+            self.session_runtime_versions.pop(session_id, None)
     
     def clear_all_sessions(self):
         """Clear all agent sessions"""
         logger.info(f"[AgentBridge] Clearing all sessions ({len(self.agents)} total)")
         self.agents.clear()
+        self.session_runtime_versions.clear()
         self.default_agent = None
     
     def refresh_all_skills(self) -> int:

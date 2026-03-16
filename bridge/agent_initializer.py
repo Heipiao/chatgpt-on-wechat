@@ -5,8 +5,10 @@ Agent Initializer - Handles agent initialization logic
 import os
 import asyncio
 import datetime
+import hashlib
+import shutil
 import time
-from typing import Optional, List
+from typing import Any, Dict, List, Optional
 
 from agent.protocol import Agent
 from agent.tools import ToolManager
@@ -34,7 +36,11 @@ class AgentInitializer:
         self.bridge = bridge
         self.agent_bridge = agent_bridge
     
-    def initialize_agent(self, session_id: Optional[str] = None) -> Agent:
+    def initialize_agent(
+        self,
+        session_id: Optional[str] = None,
+        runtime_config: Optional[Dict[str, Any]] = None,
+    ) -> Agent:
         """
         Initialize agent for a session
         
@@ -73,9 +79,10 @@ class AgentInitializer:
         
         # Load context files
         context_files = load_context_files(workspace_root)
+        context_files = self._merge_runtime_context_files(context_files, runtime_config)
         
         # Initialize skill manager
-        skill_manager = self._initialize_skill_manager(workspace_root, session_id)
+        skill_manager = self._initialize_skill_manager(workspace_root, session_id, runtime_config)
         
         # Check if first conversation
         from agent.prompt.workspace import is_first_conversation, mark_conversation_started
@@ -83,7 +90,7 @@ class AgentInitializer:
         
         # Build system prompt
         prompt_builder = PromptBuilder(workspace_dir=workspace_root, language="zh")
-        runtime_info = self._get_runtime_info(workspace_root)
+        runtime_info = self._get_runtime_info(workspace_root, runtime_config=runtime_config)
         
         system_prompt = prompt_builder.build(
             tools=tools,
@@ -112,7 +119,8 @@ class AgentInitializer:
             skill_manager=skill_manager,
             enable_skills=True,
             max_context_tokens=max_context_tokens,
-            runtime_info=runtime_info  # Pass runtime_info for dynamic time updates
+            runtime_info=runtime_info,  # Pass runtime_info for dynamic time updates
+            model_name=self._get_runtime_model_name(runtime_config),
         )
         
         # Attach memory manager
@@ -287,17 +295,37 @@ class AgentInitializer:
             except Exception as e:
                 logger.warning(f"[AgentInitializer] Failed to inject scheduler dependencies: {e}")
     
-    def _initialize_skill_manager(self, workspace_root: str, session_id: Optional[str] = None):
+    def _initialize_skill_manager(
+        self,
+        workspace_root: str,
+        session_id: Optional[str] = None,
+        runtime_config: Optional[Dict[str, Any]] = None,
+    ):
         """Initialize skill manager"""
         try:
             from agent.skills import SkillManager
-            skill_manager = SkillManager(custom_dir=os.path.join(workspace_root, "skills"))
+            if runtime_config:
+                builtin_dir, custom_dir = self._prepare_runtime_skill_dirs(
+                    workspace_root,
+                    session_id,
+                    runtime_config,
+                )
+                skill_manager = SkillManager(
+                    builtin_dir=builtin_dir,
+                    custom_dir=custom_dir,
+                )
+            else:
+                skill_manager = SkillManager(custom_dir=os.path.join(workspace_root, "skills"))
             return skill_manager
         except Exception as e:
             logger.warning(f"[AgentInitializer] Failed to initialize SkillManager: {e}")
             return None
     
-    def _get_runtime_info(self, workspace_root: str):
+    def _get_runtime_info(
+        self,
+        workspace_root: str,
+        runtime_config: Optional[Dict[str, Any]] = None,
+    ):
         """Get runtime information with dynamic time support"""
         from config import conf
         
@@ -328,11 +356,137 @@ class AgentInitializer:
             }
         
         return {
-            "model": conf().get("model", "unknown"),
+            "model": self._get_runtime_model_name(runtime_config) or conf().get("model", "unknown"),
             "workspace": workspace_root,
             "channel": conf().get("channel_type", "unknown"),
             "_get_current_time": get_current_time  # Dynamic time function
         }
+
+    def _merge_runtime_context_files(self, context_files, runtime_config: Optional[Dict[str, Any]] = None):
+        if not runtime_config:
+            return context_files
+
+        from agent.prompt.builder import ContextFile
+
+        merged_context_files = list(context_files or [])
+        system_prompt = (runtime_config.get("system_prompt") or "").strip()
+        agent_name = (runtime_config.get("name") or "").strip()
+        version = runtime_config.get("version")
+
+        runtime_lines = [
+            "以下内容由上游业务系统为当前会话下发，是本次对话必须遵循的 Agent 设定。",
+        ]
+
+        if agent_name:
+            runtime_lines.append(f"Agent 名称: {agent_name}")
+        if version:
+            runtime_lines.append(f"Runtime 版本: {version}")
+        if system_prompt:
+            runtime_lines.extend(["", system_prompt])
+
+        merged_context_files.append(
+            ContextFile(
+                path="AGENT_RUNTIME.md",
+                content="\n".join(runtime_lines).strip(),
+            )
+        )
+        return merged_context_files
+
+    def _prepare_runtime_skill_dirs(
+        self,
+        workspace_root: str,
+        session_id: Optional[str],
+        runtime_config: Dict[str, Any],
+    ):
+        runtime_version = self._get_runtime_version(runtime_config)
+        session_key = self._build_runtime_session_key(session_id, runtime_config)
+        runtime_root = os.path.join(workspace_root, "runtime_agents", session_key, runtime_version)
+        builtin_dir = os.path.join(runtime_root, "_builtin_empty")
+        custom_dir = os.path.join(runtime_root, "skills")
+
+        os.makedirs(builtin_dir, exist_ok=True)
+        os.makedirs(custom_dir, exist_ok=True)
+        self._reset_runtime_skill_dir(custom_dir)
+
+        for skill in runtime_config.get("skills") or []:
+            skill_name = self._sanitize_runtime_name(skill.get("name") or "skill")
+            skill_dir = os.path.join(custom_dir, skill_name)
+            os.makedirs(skill_dir, exist_ok=True)
+            skill_path = os.path.join(skill_dir, "SKILL.md")
+            with open(skill_path, "w", encoding="utf-8") as skill_file:
+                skill_file.write(self._render_runtime_skill_markdown(skill))
+
+        return builtin_dir, custom_dir
+
+    def _reset_runtime_skill_dir(self, custom_dir: str):
+        for entry in os.listdir(custom_dir):
+            entry_path = os.path.join(custom_dir, entry)
+            if os.path.isdir(entry_path):
+                shutil.rmtree(entry_path)
+            else:
+                os.remove(entry_path)
+
+    def _render_runtime_skill_markdown(self, skill: Dict[str, Any]) -> str:
+        name = (skill.get("name") or "runtime-skill").strip()
+        description = (skill.get("description") or name).strip()
+        content = (skill.get("content") or "").strip()
+
+        if not content:
+            return (
+                f"---\nname: {name}\ndescription: {description}\n---\n\n"
+                f"{description}\n"
+            )
+
+        if not content.startswith("---"):
+            return (
+                f"---\nname: {name}\ndescription: {description}\n---\n\n"
+                f"{content}\n"
+            )
+
+        if "description:" not in content:
+            parts = content.split("\n", 1)
+            if len(parts) == 2:
+                return f"{parts[0]}\ndescription: {description}\n{parts[1]}"
+
+        return content
+
+    def _build_runtime_session_key(
+        self,
+        session_id: Optional[str],
+        runtime_config: Dict[str, Any],
+    ) -> str:
+        raw_key = str(
+            session_id
+            or runtime_config.get("agent_id")
+            or runtime_config.get("name")
+            or "default"
+        )
+        digest = hashlib.sha1(raw_key.encode("utf-8")).hexdigest()[:12]
+        safe_key = self._sanitize_runtime_name(raw_key)
+        return f"{safe_key}-{digest}"
+
+    @staticmethod
+    def _sanitize_runtime_name(value: str) -> str:
+        sanitized = "".join(ch if ch.isalnum() or ch in ("-", "_") else "-" for ch in value)
+        sanitized = sanitized.strip("-_")
+        return sanitized or "runtime"
+
+    @staticmethod
+    def _get_runtime_version(runtime_config: Optional[Dict[str, Any]] = None) -> str:
+        if not runtime_config:
+            return "default"
+        version = runtime_config.get("version")
+        return str(version) if version is not None else "default"
+
+    @staticmethod
+    def _get_runtime_model_name(runtime_config: Optional[Dict[str, Any]] = None) -> Optional[str]:
+        if not runtime_config:
+            return None
+        model_config = runtime_config.get("llm_model_config") or {}
+        model_name = model_config.get("model")
+        if isinstance(model_name, str) and model_name.strip():
+            return model_name.strip()
+        return None
     
     def _migrate_config_to_env(self, workspace_root: str):
         """Migrate API keys from config.json to .env file"""
