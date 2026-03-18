@@ -177,6 +177,7 @@ class WebChannel(ChatChannel):
             session_id = json_data.get('session_id', f'session_{int(time.time())}')
             prompt = json_data.get('message', '')
             agent_runtime = json_data.get("agent_runtime")
+            actor_user_id = json_data.get("actor_user_id")
             
             # 生成请求ID
             request_id = self._generate_request_id()
@@ -212,6 +213,8 @@ class WebChannel(ChatChannel):
             context["session_id"] = session_id
             context["receiver"] = session_id
             context["request_id"] = request_id
+            if actor_user_id is not None:
+                context["actor_user_id"] = actor_user_id
             if isinstance(agent_runtime, dict):
                 context["agent_runtime"] = agent_runtime
             

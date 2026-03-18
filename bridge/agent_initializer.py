@@ -304,11 +304,27 @@ class AgentInitializer:
         """Initialize skill manager"""
         try:
             from agent.skills import SkillManager
+            disable_local_skills = os.getenv("AIHRBP_DISABLE_LOCAL_SKILLS", "1").strip().lower() in (
+                "1",
+                "true",
+                "yes",
+                "on",
+            )
             if runtime_config:
                 builtin_dir, custom_dir = self._prepare_runtime_skill_dirs(
                     workspace_root,
                     session_id,
                     runtime_config,
+                )
+                skill_manager = SkillManager(
+                    builtin_dir=builtin_dir,
+                    custom_dir=custom_dir,
+                )
+            elif disable_local_skills:
+                builtin_dir, custom_dir = self._prepare_runtime_skill_dirs(
+                    workspace_root,
+                    session_id,
+                    {"name": "no-local-skills", "version": "disabled", "skills": []},
                 )
                 skill_manager = SkillManager(
                     builtin_dir=builtin_dir,
@@ -372,6 +388,8 @@ class AgentInitializer:
         system_prompt = (runtime_config.get("system_prompt") or "").strip()
         agent_name = (runtime_config.get("name") or "").strip()
         version = runtime_config.get("version")
+        agent_id = runtime_config.get("agent_id")
+        tenant_id = runtime_config.get("tenant_id")
 
         runtime_lines = [
             "以下内容由上游业务系统为当前会话下发，是本次对话必须遵循的 Agent 设定。",
@@ -379,6 +397,10 @@ class AgentInitializer:
 
         if agent_name:
             runtime_lines.append(f"Agent 名称: {agent_name}")
+        if agent_id is not None:
+            runtime_lines.append(f"Agent ID: {agent_id}")
+        if tenant_id is not None:
+            runtime_lines.append(f"Tenant ID: {tenant_id}")
         if version:
             runtime_lines.append(f"Runtime 版本: {version}")
         if system_prompt:

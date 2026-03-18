@@ -333,6 +333,7 @@ class AgentBridge:
             agent = self.get_agent(session_id=session_id, runtime_config=runtime_config)
             if not agent:
                 return Reply(ReplyType.ERROR, "Failed to initialize super agent")
+            agent.runtime_context = context
             
             # Create event handler for logging and channel communication
             event_handler = AgentEventHandler(context=context, original_callback=on_event)
