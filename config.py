@@ -192,6 +192,12 @@ available_setting = {
     "Minimax_base_url": "",
     "web_port": 9899,
     "web_cors_allow_origin": "",  # CORS 允许的源，如 http://localhost:3000，空则不加 CORS 头
+    "web_message_store_enabled": False,  # 是否将 Web Channel 原始事件直接写入数据库
+    "web_message_store_db_host": "",  # Web Channel 消息存储数据库 Host，默认回退到环境变量 DB_HOST
+    "web_message_store_db_port": 3306,
+    "web_message_store_db_user": "",
+    "web_message_store_db_password": "",
+    "web_message_store_db_name": "",
     # 阿里云 OSS 配置
     "oss_access_key_id": "",
     "oss_access_key_secret": "",

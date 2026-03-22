@@ -17,6 +17,8 @@ import mimetypes  # 添加这行来处理MIME类型
 import threading
 import logging
 
+from channel.web.message_store import WebMessageStore
+
 FILE_REPLY_TYPES = {ReplyType.FILE, ReplyType.IMAGE, ReplyType.VIDEO}
 
 
@@ -53,7 +55,11 @@ class WebChannel(ChatChannel):
         self.msg_id_counter = 0  # 添加消息ID计数器
         self.session_queues = {}  # 存储session_id到队列的映射
         self.request_to_session = {}  # 存储request_id到session_id的映射
+        self.request_metadata = {}  # 存储request_id到请求元数据的映射
+        self.request_traces = {}  # 存储request_id到执行轨迹的映射
+        self.request_tool_starts = {}  # 存储request_id到tool start事件的映射
         self._http_server = None
+        self.message_store = WebMessageStore()
 
 
     def _generate_msg_id(self):
@@ -85,6 +91,7 @@ class WebChannel(ChatChannel):
             if not session_id:
                 logger.error(f"No session_id found for request {request_id}")
                 return
+            request_meta = self._get_request_meta(request_id, session_id=session_id, context=context)
 
             oss_url = None
             is_file_type = reply.type in FILE_REPLY_TYPES
@@ -113,7 +120,17 @@ class WebChannel(ChatChannel):
                     "oss_url": oss_url,
                     "timestamp": time.time(),
                     "request_id": request_id,
+                    "sender_type": "agent",
+                    "message_type": "chat",
+                    "steps": [],
                 }
+                self._persist_reply_event(
+                    request_meta=request_meta,
+                    reply=reply,
+                    content=content,
+                    oss_url=oss_url,
+                    payload=response_data,
+                )
                 self.session_queues[session_id].put(response_data)
                 logger.info(f"[WebChannel] Queued response: type={response_data['type']}, content={content}, oss_url={oss_url}, request_id={request_id}")
             else:
@@ -176,14 +193,32 @@ class WebChannel(ChatChannel):
             json_data = json.loads(data)
             session_id = json_data.get('session_id', f'session_{int(time.time())}')
             prompt = json_data.get('message', '')
+            original_prompt = prompt
+            tenant_id = json_data.get("tenant_id")
+            agent_id = json_data.get("agent_id")
             agent_runtime = json_data.get("agent_runtime")
             actor_user_id = json_data.get("actor_user_id")
+            role = json_data.get("role", "user")
+            sender_type = json_data.get("sender_type", "user")
+            message_type = json_data.get("message_type", "chat")
             
             # 生成请求ID
             request_id = self._generate_request_id()
             
             # 将请求ID与会话ID关联
             self.request_to_session[request_id] = session_id
+            self.request_metadata[request_id] = {
+                "session_id": session_id,
+                "request_id": request_id,
+                "tenant_id": tenant_id,
+                "agent_id": agent_id,
+                "actor_user_id": actor_user_id,
+                "role": role,
+                "sender_type": sender_type,
+                "message_type": message_type,
+            }
+            self.request_traces[request_id] = []
+            self.request_tool_starts[request_id] = {}
             
             # 确保会话队列存在
             if session_id not in self.session_queues:
@@ -213,10 +248,36 @@ class WebChannel(ChatChannel):
             context["session_id"] = session_id
             context["receiver"] = session_id
             context["request_id"] = request_id
+            context["tenant_id"] = tenant_id
+            context["agent_id"] = agent_id
+            context["role"] = role
+            context["sender_type"] = sender_type
+            context["message_type"] = message_type
             if actor_user_id is not None:
                 context["actor_user_id"] = actor_user_id
             if isinstance(agent_runtime, dict):
                 context["agent_runtime"] = agent_runtime
+
+            self.message_store.append_event(
+                session_id=session_id,
+                request_id=request_id,
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                actor_user_id=actor_user_id,
+                role=role,
+                sender_type=sender_type,
+                message_type=message_type,
+                event_type="request_message",
+                content=original_prompt,
+                payload={
+                    "session_id": session_id,
+                    "request_id": request_id,
+                    "message": original_prompt,
+                    "tenant_id": tenant_id,
+                    "agent_id": agent_id,
+                    "actor_user_id": actor_user_id,
+                },
+            )
             
             # 异步处理消息 - 只传递上下文
             threading.Thread(target=self.produce, args=(context,)).start()
@@ -242,17 +303,20 @@ class WebChannel(ChatChannel):
             
             # 尝试从队列获取响应，不等待
             try:
-                # 使用peek而不是get，这样如果前端没有成功处理，下次还能获取到
                 response = self.session_queues[session_id].get(block=False)
-                
+                has_content = bool(response.get("content") or response.get("oss_url") or response.get("steps"))
                 return json.dumps({
                     "status": "success",
-                    "has_content": True,
+                    "has_content": has_content,
                     "type": response["type"],
-                    "content": response["content"],
+                    "content": response.get("content"),
                     "oss_url": response.get("oss_url"),
                     "request_id": response["request_id"],
                     "timestamp": response["timestamp"],
+                    "sender_type": response.get("sender_type"),
+                    "message_type": response.get("message_type"),
+                    "event_type": response.get("event_type"),
+                    "steps": response.get("steps"),
                 })
                 
             except Empty:
@@ -262,6 +326,105 @@ class WebChannel(ChatChannel):
         except Exception as e:
             logger.error(f"Error polling response: {e}")
             return json.dumps({"status": "error", "message": str(e)})
+
+    def record_agent_event(self, event_type: str, data: dict, context: Context):
+        request_id = context.get("request_id") if context else None
+        if not request_id:
+            return
+        session_id = context.get("session_id") if context else None
+        request_meta = self._get_request_meta(request_id, session_id=session_id, context=context)
+        tool_call_id = data.get("tool_call_id")
+        if event_type == "tool_execution_start" and tool_call_id:
+            self.request_tool_starts.setdefault(request_id, {})[tool_call_id] = dict(data)
+
+        merged_data = dict(self.request_tool_starts.get(request_id, {}).get(tool_call_id, {}))
+        merged_data.update(data or {})
+        step = self._build_trace_step(event_type=event_type, data=merged_data)
+        if event_type == "tool_execution_end" and step:
+            self.request_traces.setdefault(request_id, []).append(step)
+            if tool_call_id:
+                self.request_tool_starts.get(request_id, {}).pop(tool_call_id, None)
+
+        payload = {
+            "event_type": event_type,
+            "data": merged_data if event_type == "tool_execution_end" else data,
+            "steps": [step] if event_type == "tool_execution_end" and step else [],
+            "request_id": request_id,
+            "timestamp": time.time(),
+        }
+        self.message_store.append_event(
+            session_id=request_meta["session_id"],
+            request_id=request_id,
+            tenant_id=request_meta.get("tenant_id"),
+            agent_id=request_meta.get("agent_id"),
+            actor_user_id=request_meta.get("actor_user_id"),
+            role="assistant",
+            sender_type="agent",
+            message_type="tool",
+            event_type=event_type,
+            payload=payload,
+        )
+
+        if event_type == "tool_execution_end" and request_meta["session_id"] in self.session_queues:
+            self.session_queues[request_meta["session_id"]].put({
+                "type": "INFO",
+                "content": "",
+                "oss_url": None,
+                "timestamp": time.time(),
+                "request_id": request_id,
+                "sender_type": "agent",
+                "message_type": "tool",
+                "event_type": event_type,
+                "steps": [step] if step else [],
+            })
+
+    def _persist_reply_event(self, request_meta: dict, reply: Reply, content: str, oss_url: str, payload: dict):
+        self.message_store.append_event(
+            session_id=request_meta["session_id"],
+            request_id=request_meta.get("request_id"),
+            tenant_id=request_meta.get("tenant_id"),
+            agent_id=request_meta.get("agent_id"),
+            actor_user_id=request_meta.get("actor_user_id"),
+            role="assistant",
+            sender_type="agent",
+            message_type="chat",
+            event_type="reply_message",
+            content=content,
+            reply_type=str(reply.type),
+            oss_url=oss_url,
+            payload=payload,
+        )
+
+    def _get_request_meta(self, request_id: str, session_id: str = None, context: Context = None) -> dict:
+        request_meta = dict(self.request_metadata.get(request_id, {}))
+        if context:
+            request_meta.setdefault("session_id", session_id or context.get("session_id"))
+            request_meta.setdefault("request_id", request_id)
+            request_meta.setdefault("tenant_id", context.get("tenant_id"))
+            request_meta.setdefault("agent_id", context.get("agent_id"))
+            request_meta.setdefault("actor_user_id", context.get("actor_user_id"))
+            request_meta.setdefault("role", context.get("role", "user"))
+            request_meta.setdefault("sender_type", context.get("sender_type", "user"))
+            request_meta.setdefault("message_type", context.get("message_type", "chat"))
+        if session_id:
+            request_meta.setdefault("session_id", session_id)
+        request_meta.setdefault("request_id", request_id)
+        self.request_metadata[request_id] = request_meta
+        return request_meta
+
+    @staticmethod
+    def _build_trace_step(event_type: str, data: dict):
+        if event_type != "tool_execution_end":
+            return None
+        return {
+            "event_type": event_type,
+            "tool_name": data.get("tool_name"),
+            "tool_call_id": data.get("tool_call_id"),
+            "status": data.get("status") or ("running" if event_type == "tool_execution_start" else None),
+            "arguments": data.get("arguments"),
+            "result": data.get("result"),
+            "execution_time_ms": int((data.get("execution_time") or 0) * 1000) if data.get("execution_time") is not None else None,
+        }
 
     def chat_page(self):
         """Serve the chat HTML page."""

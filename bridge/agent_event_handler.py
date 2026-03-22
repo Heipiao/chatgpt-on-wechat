@@ -86,11 +86,11 @@ class AgentEventHandler:
     
     def _handle_tool_execution_start(self, data):
         """Handle tool execution start event - logged by agent_stream.py"""
-        pass
+        self._record_agent_event("tool_execution_start", data)
     
     def _handle_tool_execution_end(self, data):
         """Handle tool execution end event - logged by agent_stream.py"""
-        pass
+        self._record_agent_event("tool_execution_end", data)
     
     def _send_to_channel(self, message):
         """
@@ -107,6 +107,13 @@ class AgentEventHandler:
                 self.channel._send(reply, self.context)
             except Exception as e:
                 logger.debug(f"[AgentEventHandler] Failed to send to channel: {e}")
+
+    def _record_agent_event(self, event_type, data):
+        if self.channel and hasattr(self.channel, "record_agent_event"):
+            try:
+                self.channel.record_agent_event(event_type=event_type, data=data, context=self.context)
+            except Exception as e:
+                logger.debug(f"[AgentEventHandler] Failed to record agent event: {e}")
     
     def log_summary(self):
         """Log execution summary - simplified"""

@@ -1,8 +1,8 @@
 # Web Channel API 协议文档
 
-> 版本: v2.0  
-> 更新日期: 2026-03-04  
-> 变更摘要: `/poll` 响应新增 `type` 字段；文件类型回复新增 `oss_url` 字段
+> 版本: v2.1  
+> 更新日期: 2026-03-23  
+> 变更摘要: `/poll` 响应新增 `event_type/steps`；Web Channel 原始消息与 tool 事件可直接入库
 
 ---
 
@@ -42,7 +42,13 @@ Client                          Server
 {
   "session_id": "string  // 会话唯一标识，前端生成",
   "message": "string     // 用户输入的消息文本",
-  "timestamp": "string   // ISO 8601 时间戳（可选）"
+  "timestamp": "string   // ISO 8601 时间戳（可选）",
+  "tenant_id": 1,
+  "agent_id": 23,
+  "actor_user_id": 1001,
+  "role": "user|system",
+  "sender_type": "user|system",
+  "message_type": "chat|event|approval"
 }
 ```
 
@@ -86,7 +92,19 @@ Client                          Server
   "content": "string      // 回复内容（文本/URL/文件路径等）",
   "oss_url": "string|null // 文件类型时的 OSS 访问地址，非文件类型为 null",
   "request_id": "string   // 对应请求的 UUID",
-  "timestamp": 1709560800.123
+  "timestamp": 1709560800.123,
+  "event_type": "string|null // 可选，tool_execution_start/tool_execution_end 等",
+  "steps": [
+    {
+      "event_type": "tool_execution_end",
+      "tool_name": "resume_search",
+      "tool_call_id": "call_xxx",
+      "status": "success",
+      "arguments": {},
+      "result": {},
+      "execution_time_ms": 312
+    }
+  ]
 }
 ```
 
@@ -179,6 +197,12 @@ Client                          Server
 | `INFO`               | 信息提示样式                                        |
 | `ERROR`              | 错误提示样式                                        |
 
+### Tool Trace 渲染建议
+
+- 当 `steps` 非空时，不应直接作为普通聊天气泡平铺
+- 建议挂在对应 assistant 消息下方，以“执行详情（N 步）”折叠面板展示
+- 单个 step 建议显示：tool 名、状态、耗时、输入摘要、输出摘要
+
 ---
 
 ## 6. CORS 配置
@@ -214,6 +238,21 @@ Access-Control-Allow-Headers: Content-Type, Authorization
 | `oss_endpoint`         | string  | 是   | OSS Endpoint                           |
 | `oss_bucket_name`      | string  | 是   | Bucket 名称，默认 `aihrbp-resumes`       |
 | `oss_tenant_id`        | int     | 是   | 租户 ID，与 aihrbp-web 体系对齐           |
+
+### Web Channel 直存 DB 配置
+
+```json
+{
+  "web_message_store_enabled": true,
+  "web_message_store_db_host": "rm-xxx.mysql.rds.aliyuncs.com",
+  "web_message_store_db_port": 3306,
+  "web_message_store_db_user": "algo_dev",
+  "web_message_store_db_password": "******",
+  "web_message_store_db_name": "aihrbp_base"
+}
+```
+
+开启后，Web Channel 会把请求消息、tool 事件和 reply 原始数据写入 `cow_session_event`。
 
 ### OSS 文件路径规范
 
