@@ -7,7 +7,9 @@ COPY --chmod=755 docker/entrypoint.sh /entrypoint.sh
 
 # 用 root 安装依赖并创建用户
 USER root
-RUN pip install --no-cache-dir oss2 PyMySQL \
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir oss2 PyMySQL \
     && mkdir -p /home/noroot \
     && groupadd -r noroot 2>/dev/null || true \
     && useradd -r -g noroot -s /bin/bash -d /home/noroot noroot 2>/dev/null || true \
